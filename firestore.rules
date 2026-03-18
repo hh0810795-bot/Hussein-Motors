@@ -1,0 +1,82 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: cars
+    // Fields: title, price, description, images, year, mileage, fuel, transmission, extras, featured, urgencyLabel, brand, createdAt
+    //
+    // Collection: leads
+    // Fields: clientName, phone, email, budget, carId, carTitle, message, status, marketerId, marketerName, createdAt
+    //
+    // Collection: marketers
+    // Fields: fullName, phone, email, cashNumber, totalLeads, confirmedDeals, paidCommissions, remainingCommissions, targetProgress, role, createdAt
+    //
+    // Collection: notifications
+    // Fields: userId, message, read, createdAt
+    //
+    // Collection: settings
+    // Fields: commissionRate, targetRewards
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == "hh0810795@gmail.com" || 
+        (exists(/databases/$(database)/documents/marketers/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/marketers/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isMarketer() {
+      return isAuthenticated() && get(/databases/$(database)/documents/marketers/$(request.auth.uid)).data.role == 'marketer';
+    }
+
+    // Cars
+    match /cars/{carId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Leads
+    match /leads/{leadId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.marketerId == request.auth.uid);
+      allow create: if true; // Customers can submit leads
+      allow update: if isAdmin(); // Only admin can change status
+      allow delete: if isAdmin();
+    }
+
+    // Marketers
+    match /marketers/{userId} {
+      allow read: if isAdmin() || isOwner(userId);
+      allow create: if true; // Registration
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
+    }
+
+    // Notifications
+    match /notifications/{notifId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if true; // Anyone can trigger a notification (e.g. new lead)
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAdmin();
+    }
+
+    // Settings
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
